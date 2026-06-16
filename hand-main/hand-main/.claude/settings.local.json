@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile creatation/motor_control_app/gesture_handler.py)",
+      "Bash(python -m py_compile creatation/motor_control_app/camera_handler.py)",
+      "Bash(python -m py_compile creatation/motor_control_app/main_window.py)",
+      "Bash(python *)",
+      "Skill(run)",
+      "Bash(pip install *)",
+      "Bash(where python *)",
+      "Read(//c/Users/31525/AppData/Local/Microsoft/WindowsApps/**)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Users/31525/AppData/Local/Programs/Python/**)",
+      "Bash(/c/Users/31525/AppData/Local/Programs/Python/Python312/python.exe --version)",
+      "Bash(/c/Users/31525/AppData/Local/Programs/Python/Python312/python.exe -m pip install -r requirements.txt)",
+      "Bash(/c/Users/31525/AppData/Local/Programs/Python/Python312/python.exe -m pip install opencv-python mediapipe numpy scikit-learn PyYAML matplotlib)",
+      "Bash(/c/Users/31525/AppData/Local/Programs/Python/Python312/python.exe src/main.py --no-control)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(taskkill //F //IM pythonw.exe)",
+      "Read(//c/Users/31525/**)",
+      "Read(//c/Users/31525/Miniconda2/**)",
+      "Read(//c/ProgramData/**)",
+      "Bash(\"/c/Users/31525/miniconda3/Scripts/conda.exe\" info *)",
+      "Bash(\"/c/Users/31525/miniconda3/Scripts/conda.exe\" env *)",
+      "Bash(\"C:/Users/31525/.conda/envs/pytorch/python.exe\" --version)",
+      "Bash(C:/Users/31525/.conda/envs/pytorch/python.exe *)",
+      "Bash(C:/Users/31525/miniconda3/Scripts/conda.exe env *)",
+      "Bash(ipconfig)",
+      "Bash(powershell.exe *)",
+      "Bash(ping *)"
+    ]
+  }
+}

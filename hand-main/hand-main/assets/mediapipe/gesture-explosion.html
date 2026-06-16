@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>粒子大爆发 - Gesture Particle Explosion</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #050510;
+      overflow: hidden;
+      height: 100dvh;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      user-select: none;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    #video { display: none; }
+
+    /* ---- 状态指示器 ---- */
+    #indicator {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 24px;
+      border-radius: 30px;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.06);
+      transition: all 0.5s;
+    }
+    #indicator.active {
+      border-color: rgba(0,255,255,0.15);
+    }
+    #indicator .label {
+      color: rgba(255,255,255,0.3);
+      font-size: 12px;
+      letter-spacing: 2px;
+    }
+    #indicator .meter-track {
+      width: 120px;
+      height: 4px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #indicator .meter-fill {
+      height: 100%;
+      width: 50%;
+      border-radius: 2px;
+      transition: background 0.3s;
+    }
+    #indicator .state-text {
+      color: rgba(255,255,255,0.7);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      min-width: 42px;
+      text-align: center;
+      transition: color 0.3s;
+    }
+    #no-hand-msg {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 5;
+      pointer-events: none;
+      color: rgba(255,255,255,0.08);
+      font-size: 28px;
+      letter-spacing: 6px;
+      transition: opacity 1s;
+    }
+
+    /* ---- 加载 ---- */
+    #loading {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #050510;
+      transition: opacity 0.8s;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+    .lds-ring {
+      width: 44px; height: 44px;
+      border: 3px solid rgba(0,255,255,0.06);
+      border-top-color: #0ff;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    #loading p {
+      margin-top: 20px;
+      color: rgba(255,255,255,0.3);
+      font-size: 13px;
+      letter-spacing: 2px;
+    }
+    #load-status {
+      margin-top: 8px;
+      color: rgba(255,255,255,0.15);
+      font-size: 11px;
+      letter-spacing: 1px;
+      font-family: monospace;
+      transition: color 0.5s;
+      min-height: 16px;
+    }
+    #load-timeout {
+      margin-top: 20px;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    #load-timeout.visible { display: flex; }
+    #load-timeout p {
+      color: rgba(255,200,100,0.5);
+      font-size: 12px;
+      margin-top: 0;
+    }
+    #skip-btn {
+      pointer-events: auto;
+      cursor: pointer;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.4);
+      padding: 8px 24px;
+      border-radius: 20px;
+      font-size: 12px;
+      letter-spacing: 1px;
+      transition: all 0.3s;
+      font-family: inherit;
+    }
+    #skip-btn:hover {
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.7);
+      border-color: rgba(255,255,255,0.2);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<video id="video" playsinline></video>
+
+<div id="no-hand-msg">请展示手势</div>
+
+<div id="indicator">
+  <span class="label">开合度</span>
+  <div class="meter-track">
+    <div class="meter-fill" id="meterFill"></div>
+  </div>
+  <span class="state-text" id="stateText">⚡</span>
+</div>
+
+<div id="loading">
+  <div class="lds-ring"></div>
+  <p>加载手势模型 ...</p>
+  <div id="load-status">初始化中</div>
+  <div id="load-timeout">
+    <p>⏳ CDN 下载较慢，是否跳过模型使用鼠标控制？</p>
+    <button id="skip-btn">跳过，用鼠标控制</button>
+  </div>
+</div>
+
+<!-- MediaPipe Hands
+     如果用本地模型，把 hands.js 放到 HTML 同目录，取消下行注释：
+     <script src="./hands.js"></script>
+     或用 CDN（需联网）：
+-->
+<!-- 本地 hands.js（与 HTML 同目录） --><script src="./hands.js"></script>
+
+<script>
+// ================================================================
+//  1.  CONFIG
+// ================================================================
+const CFG = {
+  particleCount: 900,
+  gatherRadius: 22,          // 收拢态粒子球半径
+  explodeRadius: 300,        // 爆炸态粒子分布半径
+  stiffness: 0.10,           // 弹簧刚度
+  damping: 0.78,             // 阻尼 — <1 产生过冲(overshoot)爆炸感
+  zRange: 180,               // Z 轴深度范围
+  opennessSmooth: 0.10,      // 开合度 EMA 平滑系数
+  historySize: 12,           // 中值滤波窗口
+  handSizeMin: 0.015,        // 手部尺寸下限(过滤噪声)
+  idleDecay: 0.008,          // 无手势时缓慢回归中性
+  motionBlur: 0.30,          // 运动拖尾强度 (0=无, 1=全保留)
+
+  // ---- 模型加载模式 ----
+  // 'cdn'   → 从 CDN 自动下载 (首次慢)
+  // 'local' → 从本地 models/ 目录加载 (需先下载文件)
+  modelSource: 'local',       // 'cdn' → CDN下载  |  'local' → 本地模型
+  modelPath: './',     // modelSource='local' 时的文件路径
+};
+
+// ================================================================
+//  2.  CANVAS SETUP
+// ================================================================
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2;
+  cy = H / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ================================================================
+//  3.  GLOW SPRITE (预渲染, 避免每帧创建径向渐变)
+// ================================================================
+const GS = 48;
+function makeGlow() {
+  const c = document.createElement('canvas');
+  c.width = c.height = GS;
+  const o = c.getContext('2d');
+  const g = o.createRadialGradient(GS/2, GS/2, 0, GS/2, GS/2, GS/2);
+  g.addColorStop(0,   'rgba(255,255,255,1)');
+  g.addColorStop(0.08,'rgba(255,255,255,0.8)');
+  g.addColorStop(0.3, 'rgba(255,255,255,0.3)');
+  g.addColorStop(0.6, 'rgba(255,255,255,0.06)');
+  g.addColorStop(1,   'rgba(255,255,255,0)');
+  o.fillStyle = g;
+  o.fillRect(0, 0, GS, GS);
+  return c;
+}
+const glowTex = makeGlow();
+
+// ================================================================
+//  4.  PARTICLE SYSTEM
+// ================================================================
+
+// ---- 4a. 工具函数 ----
+function randSphere(r) {
+  const theta = Math.random() * Math.PI * 2;
+  const phi   = Math.acos(2 * Math.random() - 1);
+  const rad   = r * Math.cbrt(Math.random()); // 均匀体积分布
+  return {
+    x: rad * Math.sin(phi) * Math.cos(theta),
+    y: rad * Math.sin(phi) * Math.sin(theta),
+    z: rad * Math.cos(phi),
+  };
+}
+
+// ---- 4b. 粒子类 ----
+class Particle {
+  constructor() {
+    // 收拢目标：小球面上的点
+    const g = randSphere(CFG.gatherRadius * (0.6 + Math.random() * 0.4));
+    this.gx = g.x; this.gy = g.y; this.gz = g.z;
+
+    // 爆炸目标：大球内的点
+    const e = randSphere(CFG.explodeRadius * (0.4 + Math.random() * 0.6));
+    this.ex = e.x; this.ey = e.y; this.ez = e.z;
+
+    // 当前位置 & 速度
+    const start = randSphere(30);
+    this.x = start.x; this.y = start.y; this.z = start.z;
+    this.vx = 0; this.vy = 0; this.vz = 0;
+
+    // 视觉属性
+    this.phase  = Math.random() * Math.PI * 2;
+    this.hueOff = (Math.random() - 0.5) * 30; // 色相偏移 ±15°
+    this.baseSz = 2.0 + Math.random() * 2.5;
+  }
+
+  /** 弹簧物理一步 */
+  update(openness, dt) {
+    // 插值目标位置 (gather ← t → explode)
+    const t = openness;
+    const tx = this.gx + (this.ex - this.gx) * t;
+    const ty = this.gy + (this.ey - this.gy) * t;
+    const tz = this.gz + (this.ez - this.gz) * t;
+
+    // 弹簧力 = k × 位移
+    const k = CFG.stiffness;
+    const fx = (tx - this.x) * k;
+    const fy = (ty - this.y) * k;
+    const fz = (tz - this.z) * k;
+
+    // 速度更新 + 阻尼 (阻尼 < 1 → 过冲 → 爆炸抖动感)
+    const d = CFG.damping;
+    this.vx = (this.vx + fx * dt) * d;
+    this.vy = (this.vy + fy * dt) * d;
+    this.vz = (this.vz + fz * dt) * d;
+
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.z += this.vz * dt;
+
+    // 返回深度信息供渲染
+    const zn = this.z / CFG.zRange;        // -1..1
+    const depthScale  = 1 - zn * 0.35;      // 0.65..1.35
+    const depthAlpha  = 0.5 + (1 - Math.abs(zn)) * 0.5;
+    return { depthScale, depthAlpha };
+  }
+}
+
+// ---- 4c. 初始化粒子 ----
+const particles = [];
+for (let i = 0; i < CFG.particleCount; i++) {
+  particles.push(new Particle());
+}
+
+// ---- 4d. 辅助粒子系统 (火花 + 冲击环) ----
+const sparks = [];
+const rings  = [];
+
+function spawnSparks(x, y, count, color) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 2 + Math.random() * 8;
+    sparks.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 0.6 + Math.random() * 0.6,
+      size: 1.5 + Math.random() * 3,
+      hue: color,
+    });
+  }
+}
+
+function spawnRing() {
+  rings.push({ r: 5, maxR: Math.min(W, H) * 0.4, alpha: 1 });
+}
+
+// ================================================================
+//  5.  HAND DETECTION — 高鲁棒手势识别
+// ================================================================
+
+/*
+ * █████████████████████████████████████████████████████████████
+ *   手指伸直判别 (旋转无关)
+ *
+ *   原理：对每根手指，计算 指尖→MCP(指根) 的 3D 平方距离，
+ *   与 PIP(中间关节)→MCP 的平方距离比较。
+ *   若指尖明显更远 (> 1.35×)，则手指伸直。
+ *
+ *   优点：与手部朝向完全无关，不依赖 y 轴比较
+ *   — 正对/侧对/倒立/斜对镜头都准确
+ * █████████████████████████████████████████████████████████████
+ */
+function isFingerExtended(lds, tip, pip, mcp) {
+  const t = lds[tip], p = lds[pip], m = lds[mcp];
+  const dt = (t.x-m.x)**2 + (t.y-m.y)**2 + (t.z-m.z)**2;
+  const dp = (p.x-m.x)**2 + (p.y-m.y)**2 + (p.z-m.z)**2;
+  return dt > dp * 1.35;
+}
+
+/*
+ * █████████████████████████████████████████████████████████████
+ *   开合度计算 (0 = 握拳, 1 = 完全张开)
+ *
+ *   步骤：
+ *     ① 检测全部 5 根手指的伸直状态（含拇指）
+ *     ② 伸直比率 → 整数离散信号 [0, 0.2, 0.4, ... 1.0]
+ *     ③ 同时计算 指尖→掌心 平均距离作为连续信号
+ *     ④ 加权融合：离散 × 0.75 + 连续 × 0.25
+ *     ⑤ 手部尺寸归一化 (自适应不同手型和距离)
+ * █████████████████████████████████████████████████████████████
+ */
+function computeOpenness(lds) {
+  // --- 手部尺寸基准: 腕关节(0) → 中指MCP(9) ---
+  const handSize = Math.hypot(
+    lds[0].x - lds[9].x,
+    lds[0].y - lds[9].y,
+    lds[0].z - lds[9].z
+  );
+  if (handSize < CFG.handSizeMin) return -1; // 信号太弱
+
+  // --- 5 指伸直检测 ---
+  const fingerDefs = [
+    { tip: 4,  pip: 3,  mcp: 2  },  // 拇指
+    { tip: 8,  pip: 6,  mcp: 5  },  // 食指
+    { tip: 12, pip: 10, mcp: 9  },  // 中指
+    { tip: 16, pip: 14, mcp: 13 },  // 无名指
+    { tip: 20, pip: 18, mcp: 17 },  // 小指
+  ];
+  let extCount = 0;
+  for (const f of fingerDefs) {
+    if (isFingerExtended(lds, f.tip, f.pip, f.mcp)) extCount++;
+  }
+  const fingerRatio = extCount / 5;  // 0, 0.2, 0.4, 0.6, 0.8, 1.0
+
+  // --- 连续距离信号: 指尖到掌心平均距离 ---
+  // 掌心 = 腕 + 4 个 MCP 的平均
+  const palmPts = [0, 5, 9, 13, 17];
+  let pcx = 0, pcy = 0, pcz = 0;
+  for (const i of palmPts) { pcx += lds[i].x; pcy += lds[i].y; pcz += lds[i].z; }
+  pcx /= palmPts.length; pcy /= palmPts.length; pcz /= palmPts.length;
+
+  const tipIndices = [4, 8, 12, 16, 20];
+  let totalDist = 0;
+  for (const i of tipIndices) {
+    totalDist += Math.hypot(lds[i].x - pcx, lds[i].y - pcy, lds[i].z - pcz);
+  }
+  const avgDist = totalDist / tipIndices.length;
+  const distRatio = Math.min(1, Math.max(0, (avgDist / handSize - 0.4) / 1.6));
+
+  // --- 融合: 离散信号为主 + 连续信号平滑过渡 ---
+  return fingerRatio * 0.75 + distRatio * 0.25;
+}
+
+// ---- 5b. 中值滤波 + EMA 平滑 ----
+const history = new Array(CFG.historySize).fill(0.5);
+let histIdx = 0;
+let smoothedOpenness = 0.5;
+let prevRawOpenness = 0.5;
+
+function filterOpenness(raw) {
+  // 写入环形缓冲
+  history[histIdx % CFG.historySize] = raw;
+  histIdx++;
+
+  // 取中值 (抗突发噪声)
+  const sorted = [...history].sort((a, b) => a - b);
+  const median = sorted[Math.floor(CFG.historySize / 2)];
+
+  // EMA 平滑 (比普通平滑更抗抖)
+  smoothedOpenness += (median - smoothedOpenness) * CFG.opennessSmooth;
+  return smoothedOpenness;
+}
+
+// ================================================================
+//  6.  MediaPipe HANDS  +  加载超时管理
+// ================================================================
+const video = document.getElementById('video');
+const loadingEl = document.getElementById('loading');
+const loadStatus = document.getElementById('load-status');
+const loadTimeoutEl = document.getElementById('load-timeout');
+const skipBtn = document.getElementById('skip-btn');
+const meterFill = document.getElementById('meterFill');
+const stateText = document.getElementById('stateText');
+const indicator  = document.getElementById('indicator');
+const noHandMsg  = document.getElementById('no-hand-msg');
+
+let handDetected = false;
+let lastHandTime = 0;
+let cameraReady  = false;
+let modelReady   = false;
+let modelFailed  = false;   // 模型加载失败/超时
+let usingMouse   = false;   // 是否已降级到鼠标模式
+let hands        = null;    // Hands 实例
+
+// --- 更新加载状态文字 ---
+function setLoadStatus(msg) {
+  loadStatus.textContent = msg;
+}
+
+// --- 降级到鼠标/触摸模式 ---
+function fallbackToMouse() {
+  if (usingMouse) return;
+  usingMouse = true;
+  modelFailed = true;
+  modelReady  = true;  // 释放渲染循环
+  loadingEl.classList.add('hidden');
+
+  setLoadStatus('已切换到鼠标控制');
+  statusElFix('🖱 鼠标/触摸控制');
+
+  document.addEventListener('mousemove', (e) => {
+    const dist = Math.hypot(e.clientX - cx, e.clientY - cy);
+    const maxD = Math.hypot(W, H) / 2;
+    prevRawOpenness = Math.max(0, Math.min(1, dist / maxD * 1.3));
+    handDetected = true;
+    lastHandTime = performance.now();
+  });
+  document.addEventListener('touchmove', (e) => {
+    const t = e.touches[0];
+    const dist = Math.hypot(t.clientX - cx, t.clientY - cy);
+    const maxD = Math.hypot(W, H) / 2;
+    prevRawOpenness = Math.max(0, Math.min(1, dist / maxD * 1.3));
+    handDetected = true;
+    lastHandTime = performance.now();
+  }, { passive: true });
+}
+
+// 辅助: 更新底部状态栏
+function statusElFix(txt) {
+  const el = document.querySelector('#indicator .state-text');
+  if (el) el.textContent = txt;
+}
+
+// --- 15 秒加载超时 ---
+setTimeout(() => {
+  if (!modelReady) {
+    setLoadStatus('⏱ 模型下载超时');
+    loadTimeoutEl.classList.add('visible');
+  }
+}, 15000);
+
+// --- 跳过按钮 ---
+skipBtn.addEventListener('click', fallbackToMouse);
+
+// --- 摄像头初始化 ---
+async function setupCamera() {
+  setLoadStatus('请求摄像头权限…');
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, facingMode: 'user' },
+    });
+    video.srcObject = s;
+    await video.play();
+    cameraReady = true;
+    setLoadStatus('摄像头已就绪，下载手势模型…');
+    return true;
+  } catch (e) {
+    console.warn('Camera:', e.message);
+    setLoadStatus('⚠ 摄像头被拒绝，切换到鼠标控制');
+    fallbackToMouse();
+    return false;
+  }
+}
+
+// --- MediaPipe Hands 结果回调 ---
+function onResults(r) {
+  if (!modelReady) {
+    modelReady = true;
+    loadingEl.classList.add('hidden');
+    setLoadStatus('✅ 模型加载完成');
+  }
+
+  if (r.multiHandLandmarks && r.multiHandLandmarks.length > 0) {
+    const lds = r.multiHandLandmarks[0];
+    const raw = computeOpenness(lds);
+    if (raw >= 0) {
+      prevRawOpenness = raw;
+      handDetected = true;
+      lastHandTime = performance.now();
+    }
+  } else {
+    handDetected = false;
+  }
+}
+
+// --- 初始化 MediaPipe Hands（含失败回退）---
+try {
+  const modelBase = CFG.modelSource === 'local'
+    ? CFG.modelPath
+    : 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/';
+  setLoadStatus(CFG.modelSource === 'local'
+    ? '从本地加载模型文件…'
+    : '从 CDN 下载手势模型 (≈ 6MB)…'
+  );
+  hands = new Hands({
+    locateFile: (f) => modelBase + f,
+  });
+  hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.55,
+    minTrackingConfidence: 0.5,
+  });
+  hands.onResults(onResults);
+} catch (e) {
+  console.error('Hands init failed:', e);
+  setLoadStatus('⚠ 模型加载失败，切换到鼠标控制');
+  fallbackToMouse();
+}
+
+// --- 检测循环 (仅当模型尚未失败时发送到 MediaPipe) ---
+function detectLoop() {
+  if (!modelFailed && cameraReady && video.readyState >= 2 && hands) {
+    hands.send({ image: video }).catch(() => {});
+  }
+  requestAnimationFrame(detectLoop);
+}
+
+// ================================================================
+//  7.  RENDER LOOP
+// ================================================================
+
+let lastOpenness = 0.5;
+let glowIntensity = 0;
+
+function render(time) {
+  const now = performance.now();
+
+  // ---- 7a. 开合度平滑 & 状态机 ----
+  const hasHand = handDetected && (now - lastHandTime) < 1500;
+
+  let openness;
+  if (hasHand) {
+    openness = filterOpenness(prevRawOpenness);
+  } else {
+    // 无手势时缓慢漂回 0.5 (既不收拢也不爆炸)
+    openness = filterOpenness(0.5 + (smoothedOpenness - 0.5) * (1 - CFG.idleDecay));
+  }
+
+  // 检测开合变化 → 触发特效
+  const opennessDelta = openness - lastOpenness;
+  if (opennessDelta > 0.25 && hasHand) {
+    // 快速张开 → 爆炸火花
+    spawnSparks(cx, cy, 20 + Math.floor(opennessDelta * 60), 30);
+    if (opennessDelta > 0.5) spawnRing();
+  }
+  lastOpenness = openness;
+
+  // ---- 7b. UI 更新 ----
+  const pct = Math.round(openness * 100);
+  const meterW = pct;
+  meterFill.style.width = meterW + '%';
+
+  if (openness < 0.35) {
+    meterFill.style.background = 'linear-gradient(90deg, #4466ff, #8844ff)';
+    stateText.textContent = '握拳';
+    stateText.style.color = '#8866ff';
+    indicator.classList.add('active');
+  } else if (openness < 0.65) {
+    meterFill.style.background = 'linear-gradient(90deg, #4488ff, #44ffcc)';
+    stateText.textContent = '半开';
+    stateText.style.color = '#44ffcc';
+    indicator.classList.add('active');
+  } else {
+    meterFill.style.background = 'linear-gradient(90deg, #44ffaa, #ff8844)';
+    stateText.textContent = '张开';
+    stateText.style.color = '#ff8844';
+    indicator.classList.add('active');
+  }
+  noHandMsg.style.opacity = hasHand ? '0' : '0.15';
+
+  // ---- 7c. 渲染背景 (运动拖尾——半透明叠加) ----
+  if (openness > 0.3) {
+    // 爆炸/半开时保留拖尾
+    ctx.fillStyle = `rgba(5,5,16,${CFG.motionBlur})`;
+  } else {
+    // 握拳时快速清屏, 让粒子清晰
+    ctx.fillStyle = '#050510';
+  }
+  ctx.fillRect(0, 0, W, H);
+
+  // 画网格 (cyan 线, 随开合度变化亮度)
+  if (openness > 0.2) {
+    const gridAlpha = 0.015 + openness * 0.025;
+    ctx.strokeStyle = `rgba(0,255,255,${gridAlpha})`;
+    ctx.lineWidth = 1;
+    const step = 48;
+    for (let x = 0; x < W; x += step) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    }
+    for (let y = 0; y < H; y += step) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+  }
+
+  // ---- 7d. 更新 & 渲染粒子 ----
+  const dt = Math.min(20, 16);
+
+  // 按 Z 排序 (深度排序)
+  // 小优化: 隔几帧排一次; 900个排序开销不大
+  particles.sort((a, b) => a.z - b.z);
+
+  for (const p of particles) {
+    const { depthScale, depthAlpha } = p.update(openness, dt);
+
+    const sx = cx + p.x;
+    const sy = cy + p.y;
+
+    // 颜色映射: 握拳(蓝紫) → 半开(青) → 张开(橙红)
+    const baseHue  = 240 - openness * 210;  // 240→30
+    const sat      = 75 + openness * 25;
+    const light    = 42 + openness * 22;
+    const hue      = baseHue + p.hueOff + openness * 10;
+    const size     = p.baseSz * depthScale * (0.7 + openness * 0.8);
+    const alpha    = depthAlpha * (0.6 + openness * 0.35);
+
+    // 呼吸灯
+    const breathe = 1 + 0.18 * Math.sin(time * 0.002 + p.phase);
+    const finalSz = size * breathe;
+
+    // 绘制辉光粒子
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(sx, sy);
+
+    const scale = finalSz / 8;
+    ctx.scale(scale, scale);
+    ctx.drawImage(glowTex, -GS/2, -GS/2, GS, GS);
+
+    // 核心亮点
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.fillStyle = `hsl(${hue}, ${sat}%, ${light}%)`;
+    ctx.beginPath();
+    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // ---- 7e. 中心光晕 (握拳时明亮, 张开时消散) ----
+  glowIntensity += ((1 - openness) * 0.5 - glowIntensity) * 0.05;
+  if (glowIntensity > 0.02) {
+    const glowR = 40 + (1 - openness) * 60;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
+    const coreAlpha = glowIntensity * (openness < 0.4 ? 1 : 0.4);
+    g.addColorStop(0, `rgba(100, 100, 255, ${coreAlpha * 1.2})`);
+    g.addColorStop(0.3, `rgba(60, 40, 200, ${coreAlpha * 0.6})`);
+    g.addColorStop(0.7, `rgba(30, 0, 120, ${coreAlpha * 0.2})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // ---- 7f. 火花粒子 ----
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    s.x += s.vx;
+    s.y += s.vy;
+    s.vy += 0.08;  // 微重力
+    s.life -= 0.015;
+    if (s.life <= 0) { sparks.splice(i, 1); continue; }
+
+    const ha = s.hue || 30;
+    ctx.save();
+    ctx.globalAlpha = s.life * 0.7;
+    ctx.fillStyle = `hsl(${ha + openness * 20}, 100%, ${50 + s.life * 40}%)`;
+    ctx.shadowColor = `hsl(${ha}, 100%, 60%)`;
+    ctx.shadowBlur = 12;
+    const sz = s.size * s.life;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, sz, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ---- 7g. 冲击环 ----
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const ri = rings[i];
+    ri.r += 2.5;
+    ri.alpha -= 0.006;
+    if (ri.alpha <= 0 || ri.r > ri.maxR) { rings.splice(i, 1); continue; }
+
+    ctx.save();
+    ctx.globalAlpha = ri.alpha * 0.3;
+    ctx.strokeStyle = `rgba(0, 255, 255, ${ri.alpha * 0.5})`;
+    ctx.lineWidth = 2 - ri.alpha * 0.5;
+    ctx.shadowColor = 'rgba(0,255,255,0.3)';
+    ctx.shadowBlur = 15;
+    ctx.beginPath();
+    ctx.arc(cx, cy, ri.r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 内环
+    ctx.globalAlpha = ri.alpha * 0.15;
+    ctx.strokeStyle = `rgba(120, 80, 255, ${ri.alpha * 0.3})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, ri.r * 0.6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // ---- 继续 ----
+  requestAnimationFrame(render);
+}
+
+// ================================================================
+//  8.  STARTUP
+// ================================================================
+(async function start() {
+  await setupCamera();          // 启动摄像头（失败会自动降级鼠标）
+  detectLoop();                 // 开始检测循环
+  render(0);                    // 启动渲染
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+--cpu Cortex-M3
+"c8t6-af\startup_stm32f103xb.o"
+"c8t6-af\ms41929.o"
+"c8t6-af\main.o"
+"c8t6-af\gpio.o"
+"c8t6-af\spi.o"
+"c8t6-af\usart.o"
+"c8t6-af\stm32f1xx_it.o"
+"c8t6-af\stm32f1xx_hal_msp.o"
+"c8t6-af\stm32f1xx_hal_gpio_ex.o"
+"c8t6-af\stm32f1xx_hal_spi.o"
+"c8t6-af\stm32f1xx_hal.o"
+"c8t6-af\stm32f1xx_hal_rcc.o"
+"c8t6-af\stm32f1xx_hal_rcc_ex.o"
+"c8t6-af\stm32f1xx_hal_gpio.o"
+"c8t6-af\stm32f1xx_hal_dma.o"
+"c8t6-af\stm32f1xx_hal_cortex.o"
+"c8t6-af\stm32f1xx_hal_pwr.o"
+"c8t6-af\stm32f1xx_hal_flash.o"
+"c8t6-af\stm32f1xx_hal_flash_ex.o"
+"c8t6-af\stm32f1xx_hal_exti.o"
+"c8t6-af\stm32f1xx_hal_uart.o"
+"c8t6-af\system_stm32f1xx.o"
+--library_type=microlib --strict --scatter "C8T6-AF\C8T6-AF.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "C8T6-AF.map" -o C8T6-AF\C8T6-AF.axf

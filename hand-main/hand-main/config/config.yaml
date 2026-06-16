@@ -1,0 +1,46 @@
+# 手势识别控制系统 - 配置文件
+# Gesture Recognition Control System Configuration
+
+# 摄像头
+camera:
+  id: 0
+  width: 640
+  height: 480
+
+# MediaPipe 手部检测
+detection:
+  static_image_mode: false
+  max_num_hands: 1
+  min_detection_confidence: 0.7
+  min_tracking_confidence: 0.5
+
+# KNN 分类器
+classifier:
+  k: 5
+  feature_set: "all"       # distance / angle / all
+  model_path: "data/models/knn_model.pkl"
+
+# GPIO 控制
+control:
+  confirm_frames: 5        # 连续确认帧数
+  pins:
+    led: 17
+    fan: 18
+    buzzer: 27
+
+# 手势映射
+gestures:
+  0: "数字1"
+  1: "数字2"
+  2: "数字3"
+  3: "数字4"
+  4: "数字5"
+  5: "OK手势"
+  6: "点赞手势"
+  7: "握拳手势"
+
+# 数据集
+dataset:
+  samples_per_gesture: 375  # 每种手势目标样本数
+  train_ratio: 0.8
+  image_size: [640, 480]

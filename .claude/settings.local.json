@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 *)",
+      "Bash(xargs wc -c)",
+      "Bash(python -c \"import pickle; m=pickle.load\\(open\\('../data/models/label_map.pkl','rb'\\)\\); print\\(type\\(m\\).__name__, m\\)\")",
+      "Bash(where python *)",
+      "Read(//c/Users/31525/anaconda3/**)",
+      "Read(//c/Users/31525/Anaconda3/**)",
+      "Read(//c/ProgramData/anaconda3/**)",
+      "Read(//c/Users/31525/**)",
+      "Read(//c/Users/31525/AppData/Local/**)",
+      "Read(//c/ProgramData/**)",
+      "Bash(/c/Users/31525/.conda/envs/pytorch/python.exe *)"
+    ]
+  }
+}

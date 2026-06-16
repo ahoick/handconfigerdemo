@@ -1,0 +1,22 @@
+# 手势识别控制系统 - Python 依赖
+# Gesture Recognition Control System - Requirements
+
+# ========== 核心依赖 ==========
+opencv-python>=4.8.0          # OpenCV 图像处理
+mediapipe>=0.10.0             # MediaPipe 手部关键点检测
+numpy>=1.24.0                 # 数值计算
+scikit-learn>=1.3.0           # KNN 分类器与评估
+
+# ========== 嵌入式平台依赖 (部署时安装) ==========
+# RPi.GPIO>=0.7.1             # Raspberry Pi GPIO控制
+# 或根据目标开发板选择:
+# gpiozero>=2.0               # Raspberry Pi 高级GPIO封装
+# pyfirmata>=1.1.0            # Arduino通信
+
+# ========== 工具依赖 ==========
+PyYAML>=6.0                   # 配置文件解析
+matplotlib>=3.7.0             # 可视化 (实验结果绘图)
+
+# ========== 开发依赖 ==========
+# pytest>=7.4.0               # 单元测试
+# black>=23.0                 # 代码格式化
