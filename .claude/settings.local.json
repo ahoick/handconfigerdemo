@@ -11,7 +11,8 @@
       "Read(//c/Users/31525/**)",
       "Read(//c/Users/31525/AppData/Local/**)",
       "Read(//c/ProgramData/**)",
-      "Bash(/c/Users/31525/.conda/envs/pytorch/python.exe *)"
+      "Bash(/c/Users/31525/.conda/envs/pytorch/python.exe *)",
+      "Bash(git --no-pager diff -- hand-main/hand-main/creatation/motor_control_app/main_window.py)"
     ]
   }
 }
