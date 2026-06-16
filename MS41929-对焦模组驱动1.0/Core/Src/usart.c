@@ -175,8 +175,18 @@ uint8_t uart_rx_index = 0;
 uint8_t uart_single_byte_rx = 0;
 uint8_t command_received = 0;
 CommandFrame_t current_command;
-// LD3320 语音模块接收变量
+// LD3320 语音模块帧解析状态机
+// 帧格式: AA 55 [KEYWORD_ID] 55 AA
+#define LD3320_FRAME_LEN  5
+#define LD3320_HDR1       0xAA
+#define LD3320_HDR2       0x55
+#define LD3320_TAIL1      0x55
+#define LD3320_TAIL2      0xAA
+
 uint8_t ld3320_rx_byte = 0;
+uint8_t ld3320_frame_buf[LD3320_FRAME_LEN];
+uint8_t ld3320_frame_idx = 0;
+uint8_t ld3320_frame_ready = 0;
 /**
  * @brief  串口接收中断回调函数（可靠状态机）
  */
@@ -344,44 +354,85 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     }
     else if (huart->Instance == USART3)
     {
-        // LD3320 语音识别结果 → 本地执行（不转发PC）
-        uint8_t keyword_id = ld3320_rx_byte;
+        // LD3320 帧解析状态机: AA 55 [ID] 55 AA
+        uint8_t byte_in = ld3320_rx_byte;
 
-        // 喂狗 — 语音指令也刷新超时
-        last_command_time = HAL_GetTick();
-        system_is_timeout = 0;
-
-        switch (keyword_id)
+        switch (ld3320_frame_idx)
         {
-            case VOICE_AB_FORWARD:
-                motor_ab_state = 1;
+            case 0:  // 等待帧头 AA
+                if (byte_in == LD3320_HDR1)
+                    ld3320_frame_idx = 1;
                 break;
-            case VOICE_AB_REVERSE:
-                motor_ab_state = 2;
+            case 1:  // 等待帧头 55
+                if (byte_in == LD3320_HDR2)
+                    ld3320_frame_idx = 2;
+                else
+                    ld3320_frame_idx = 0;
                 break;
-            case VOICE_CD_FORWARD:
-                motor_cd_state = 1;
+            case 2:  // 接收关键词 ID
+                ld3320_frame_buf[2] = byte_in;
+                ld3320_frame_idx = 3;
                 break;
-            case VOICE_CD_REVERSE:
-                motor_cd_state = 2;
+            case 3:  // 等待尾 55
+                if (byte_in == LD3320_TAIL1)
+                    ld3320_frame_idx = 4;
+                else
+                    ld3320_frame_idx = 0;
                 break;
-            case VOICE_ALL_STOP:
-                motor_ab_state = 0;
-                motor_cd_state = 0;
-                MS41929_Stepper_Stop(MS41929_CHANNEL_AB, 1);
-                MS41929_Stepper_Stop(MS41929_CHANNEL_CD, 1);
-                break;
-            case VOICE_LED_ON:
-                HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_SET);
-                break;
-            case VOICE_LED_OFF:
-                HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_RESET);
+            case 4:  // 等待尾 AA → 帧完整
+                if (byte_in == LD3320_TAIL2)
+                {
+                    ld3320_frame_ready = 1;
+                }
+                ld3320_frame_idx = 0;
                 break;
             default:
+                ld3320_frame_idx = 0;
                 break;
         }
 
-        // 重新开启 LD3320 中断接收
+        // 帧接收完成 → 执行指令
+        if (ld3320_frame_ready)
+        {
+            ld3320_frame_ready = 0;
+            uint8_t keyword_id = ld3320_frame_buf[2];
+
+            // 喂狗
+            last_command_time = HAL_GetTick();
+            system_is_timeout = 0;
+
+            switch (keyword_id)
+            {
+                case VOICE_AB_FORWARD:
+                    motor_ab_state = 1;
+                    break;
+                case VOICE_AB_REVERSE:
+                    motor_ab_state = 2;
+                    break;
+                case VOICE_CD_FORWARD:
+                    motor_cd_state = 1;
+                    break;
+                case VOICE_CD_REVERSE:
+                    motor_cd_state = 2;
+                    break;
+                case VOICE_ALL_STOP:
+                    motor_ab_state = 0;
+                    motor_cd_state = 0;
+                    MS41929_Stepper_Stop(MS41929_CHANNEL_AB, 1);
+                    MS41929_Stepper_Stop(MS41929_CHANNEL_CD, 1);
+                    break;
+                case VOICE_LED_ON:
+                    HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_SET);
+                    break;
+                case VOICE_LED_OFF:
+                    HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_RESET);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        // 重新开启中断接收
         HAL_UART_Receive_IT(&huart3, &ld3320_rx_byte, 1);
     }
 }
