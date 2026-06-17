@@ -46,13 +46,15 @@ void LD3320_Receive_Init(void);
 
 // LD3320 语音关键词ID → 指令映射表
 // 根据 LD3320 模块实际编程的关键词调整以下 ID
-#define VOICE_AB_FORWARD    1   // "正转" → AB正转
-#define VOICE_AB_REVERSE    2   // "反转" → AB反转
-#define VOICE_CD_FORWARD    3   // "变焦进" → CD正转
-#define VOICE_CD_REVERSE    4   // "变焦退" → CD反转
+// 帧格式: AA 55 [ID] 55 AA
+#define VOICE_AB_FORWARD    1   // "对焦正转" → AB正转
+#define VOICE_AB_REVERSE    2   // "对焦反转" → AB反转
+#define VOICE_CD_FORWARD    3   // "变焦正转" → CD正转
+#define VOICE_CD_REVERSE    4   // "变焦反转" → CD反转
 #define VOICE_ALL_STOP      5   // "停止" → AB+CD急停
 #define VOICE_LED_ON        6   // "开灯" → 七彩LED亮
 #define VOICE_LED_OFF       7   // "关灯" → 七彩LED灭
+// ID 8: "播放音乐" — LD3320 本地播放，不通过串口输出
 
 extern volatile uint32_t last_command_time;
 extern volatile uint8_t system_is_timeout;
