@@ -78,8 +78,6 @@ void MS41929_SPI_Test(void);
 /* USER CODE BEGIN Private defines */
 #define RGB_LED_Pin GPIO_PIN_1
 #define RGB_LED_GPIO_Port GPIOB
-#define BUZZER_Pin GPIO_PIN_0
-#define BUZZER_GPIO_Port GPIOB
 #define LD3320_TX_Pin GPIO_PIN_10
 #define LD3320_TX_GPIO_Port GPIOB
 #define LD3320_RX_Pin GPIO_PIN_11

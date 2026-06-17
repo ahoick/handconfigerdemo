@@ -601,7 +601,7 @@ class MainWindow(QMainWindow):
         self.gesture_legend = QLabel(
             '<span style="color:#8888aa;font-size:10px;">'
             '✋ <b>Gestures:</b> 1→AB▶ | 2→AB◀ | 3→CD▶ | 4→CD◀ | '
-            '5→彩灯+蜂鸣 | OK→彩灯关 | 👍→急停 | ✊→急停'
+            '5→彩灯开 | OK→彩灯关 | 👍→急停 | ✊→急停'
             '</span>'
         )
         self.gesture_legend.setVisible(False)
@@ -649,15 +649,17 @@ class MainWindow(QMainWindow):
 
     # ─── Gesture → Serial Command Mapping ─────────────────
 
+    # (channel, action, desc) — action: 0x01=正转, 0x02=反转, 0x04=刹车
+    # or (None, cmd_byte, desc) for non-motor commands
     GESTURE_ACTIONS = {
-        "1":    ("CMD_AB_FORWARD", "AB正转"),
-        "2":    ("CMD_AB_REVERSE", "AB反转"),
-        "3":    ("CMD_CD_FORWARD", "CD正转"),
-        "4":    ("CMD_CD_REVERSE", "CD反转"),
-        "5":    ("CMD_RGB_ON",     "七彩灯开"),
-        "OK":   ("CMD_RGB_OFF",    "七彩灯关"),
-        "Good": ("CMD_ALL_BRAKE",  "急停"),
-        "Fist": ("CMD_ALL_BRAKE",  "急停"),
+        "1":    (0, 0x01, "AB正转"),
+        "2":    (0, 0x02, "AB反转"),
+        "3":    (1, 0x01, "CD正转"),
+        "4":    (1, 0x02, "CD反转"),
+        "5":    (None, 0x09, "七彩灯开"),
+        "OK":   (None, 0x0A, "七彩灯关"),
+        "Good": (None, 0x0C, "急停"),
+        "Fist": (None, 0x0C, "急停"),
     }
 
     GESTURE_DEBOUNCE_S = 0.3  # 手势需稳定保持 0.3 秒才发送指令
@@ -684,7 +686,7 @@ class MainWindow(QMainWindow):
                 self.gesture_status_lbl.setStyleSheet(f"color: {COLOR_SUCCESS}; background: transparent; font-size: 11px;")
                 self.gesture_legend.setVisible(True)
                 self._log("手势识别已启用 [打开摄像头 + 勾选手势识别]", "success")
-                self._log("手势映射: 1=AB正转 2=AB反转 3=CD正转 4=CD反转 5=彩灯+蜂鸣 OK=彩灯关 Good/Fist=急停", "info")
+                self._log("手势映射: 1=AB正转 2=AB反转 3=CD正转 4=CD反转 5=彩灯开 OK=彩灯关 Good/Fist=急停", "info")
             else:
                 self.gesture_status_lbl.setText("")
                 self.gesture_legend.setVisible(False)
@@ -732,35 +734,34 @@ class MainWindow(QMainWindow):
         if action is None:
             return
 
-        cmd_name, desc = action
+        channel, cmd_or_action, desc = action
 
         if not self._check_serial():
             self._log(f"  → {desc} (串口未连接，仅识别)", "warning")
             return
 
-        from serial_communicator import (
-            CMD_AB_FORWARD, CMD_AB_REVERSE, CMD_AB_STOP, CMD_AB_BRAKE,
-            CMD_CD_FORWARD, CMD_CD_REVERSE, CMD_CD_STOP, CMD_CD_BRAKE,
-            CMD_RGB_ON, CMD_RGB_OFF, CMD_BUZZER, CMD_ALL_BRAKE,
-        )
-        cmd_map = {
-            "CMD_AB_FORWARD": CMD_AB_FORWARD, "CMD_AB_REVERSE": CMD_AB_REVERSE,
-            "CMD_AB_STOP": CMD_AB_STOP, "CMD_AB_BRAKE": CMD_AB_BRAKE,
-            "CMD_CD_FORWARD": CMD_CD_FORWARD, "CMD_CD_REVERSE": CMD_CD_REVERSE,
-            "CMD_CD_STOP": CMD_CD_STOP, "CMD_CD_BRAKE": CMD_CD_BRAKE,
-            "CMD_RGB_ON": CMD_RGB_ON, "CMD_RGB_OFF": CMD_RGB_OFF,
-            "CMD_BUZZER": CMD_BUZZER, "CMD_ALL_BRAKE": CMD_ALL_BRAKE,
-        }
-        cmd_byte = cmd_map.get(cmd_name)
-        if cmd_byte is not None:
-            self.serial.send_command(cmd_byte, f"手势: {gesture_name} → {desc}")
-            self._log(f"  → {desc} 已发送", "success")
-
-            # 手势5: 同时触发蜂鸣器（开灯 + 蜂鸣）
-            if gesture_name == "5":
-                self.serial.send_command(CMD_BUZZER, "手势5: 蜂鸣器")
-                self._log(f"  → 蜂鸣器 已发送", "success")
-
+        if channel is not None:
+            # 电机类手势 → 走 motor_control（先发速度，再发指令，带边界保护）
+            speed = self.speed_slider.value()
+            result = self.serial.motor_control(channel, cmd_or_action, speed=speed)
+            if result and result["success"]:
+                self._log(f"  → 手势: {gesture_name} → {desc} 已发送", "success")
+            else:
+                status_text = result["status_text"] if result else "无响应"
+                self._log(f"  → 手势: {gesture_name} → {desc} 失败 ({status_text})", "error")
+        else:
+            # 非电机类手势（LED、急停）→ 直接发指令字节
+            cmd_byte = cmd_or_action
+            result = self.serial.send_command(cmd_byte, f"手势: {gesture_name} → {desc}")
+            if result and result["success"]:
+                self._log(f"  → {desc} 已发送", "success")
+                # 急停需更新两路运动状态
+                if cmd_byte == 0x0C or cmd_byte == 0x04:
+                    self.serial._motion_state[0] = 0
+                    self.serial._motion_state[1] = 0
+            else:
+                status_text = result["status_text"] if result else "无响应"
+                self._log(f"  → 手势: {gesture_name} → {desc} 失败 ({status_text})", "error")
     # ──────────────────────────────────────────────
     # 串口面板
     # ──────────────────────────────────────────────
