@@ -60,4 +60,5 @@ extern volatile uint32_t last_command_time;
 extern volatile uint8_t system_is_timeout;
 extern volatile uint8_t motor_ab_state;
 extern volatile uint8_t motor_cd_state;
+extern volatile uint8_t default_speed;
 /* USER CODE END Prototypes */

@@ -253,9 +253,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         uint8_t ack_ok = 0x55;  
         uint8_t ack_err = 0xEE; 
         
-        static uint8_t default_speed = 1; 
-
-        // ====== 1. 任何合法指令（动作、调速、心跳）进来，都执行“喂狗”刷新时间 ======
+        // ====== 1. 任何合法指令（动作、调速、心跳）进来，都执行”喂狗”刷新时间 ======
         // 去掉了 cmd >= 0x00 的无用警告，cmd <= 0x08 自动包含了 0x00
         if (cmd <= 0x0C || (cmd >= 0x10 && cmd <= 0x73))
         {

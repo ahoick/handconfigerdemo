@@ -197,16 +197,17 @@ HAL_Delay(10); // 给硬件一点稳定时间
           }
 
           /* ---------- 持续驱动 CD 电机 ---------- */
-          if (motor_cd_state == 1) 
+          if (motor_cd_state == 1)
           {
               MS41929_Stepper_Run(MS41929_CHANNEL_CD, 1, default_speed); // 持续正转
           }
-          else if (motor_cd_state == 2) 
+          else if (motor_cd_state == 2)
           {
               MS41929_Stepper_Run(MS41929_CHANNEL_CD, 0, default_speed); // 持续反转
           }
       }
-      
+
+      HAL_Delay(5);  // 5ms 延时防止主循环灌爆 MS41929 SPI 总线
       /* USER CODE END WHILE */
       /* USER CODE BEGIN 3 */
   }
