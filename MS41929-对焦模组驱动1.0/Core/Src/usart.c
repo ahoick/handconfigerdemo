@@ -178,6 +178,14 @@ CommandFrame_t current_command;
 volatile uint8_t buzzer_on = 0;
 volatile uint32_t buzzer_on_time = 0;
 
+// ─── ISR 内安全的串口发送（直接写寄存器，不经过 HAL 状态机） ───
+static void UART_SendByte_ISR(UART_HandleTypeDef *huart, uint8_t byte)
+{
+    uint32_t timeout = 100000;
+    while (!(huart->Instance->SR & USART_SR_TXE) && --timeout);
+    huart->Instance->DR = byte;
+}
+
 // LD3320 语音模块帧解析状态机
 // 帧格式: AA 55 [KEYWORD_ID] 55 AA
 #define LD3320_FRAME_LEN  5
@@ -266,7 +274,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         if (cmd >= 0x10 && cmd <= 0x73)
         {
             default_speed = cmd - 0x0F; // 自动还原为 1 ~ 100
-            HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);             
+            UART_SendByte_ISR(&huart1, ack_ok);             
             HAL_UART_Receive_IT(&huart1, &uart_single_byte_rx, 1);
             return;
         }
@@ -276,71 +284,71 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         {
             /* ==================== 心跳包 (0x00) ==================== */
             case 0x00: 
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); 
+                UART_SendByte_ISR(&huart1, ack_ok); 
                 break;
 
             /* ==================== AB 电机控制 (0x01 ~ 0x04) ==================== */
             case 0x01: // AB 电机正转
                 motor_ab_state = 1; // 只改标志，让 main.c 的 while(1) 去疯狂驱动
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); 
+                UART_SendByte_ISR(&huart1, ack_ok); 
                 break;
                 
             case 0x02: // AB 电机反转
                 motor_ab_state = 2; 
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); 
+                UART_SendByte_ISR(&huart1, ack_ok); 
                 break;
                 
             case 0x03: // AB 电机自由停止（滑行）
                 motor_ab_state = 0;
                 MS41929_Stepper_Stop(MS41929_CHANNEL_AB, 0); 
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); 
+                UART_SendByte_ISR(&huart1, ack_ok); 
                 break;
                 
             case 0x04: // AB 电机刹车抱死
                 motor_ab_state = 0;
                 MS41929_Stepper_Stop(MS41929_CHANNEL_AB, 1); 
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); 
+                UART_SendByte_ISR(&huart1, ack_ok); 
                 break;
 
             /* ==================== CD 电机控制 (0x05 ~ 0x08) ==================== */
             case 0x05: // CD 电机正转
                 motor_cd_state = 1;
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); 
+                UART_SendByte_ISR(&huart1, ack_ok); 
                 break;
                 
             case 0x06: // CD 电机反转
                 motor_cd_state = 2;
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); 
+                UART_SendByte_ISR(&huart1, ack_ok); 
                 break;
                 
             case 0x07: // CD 电机自由停止（滑行）
                 motor_cd_state = 0;
                 MS41929_Stepper_Stop(MS41929_CHANNEL_CD, 0); 
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); 
+                UART_SendByte_ISR(&huart1, ack_ok); 
                 break;
                 
             case 0x08: // CD 电机刹车抱死
                 motor_cd_state = 0;
                 MS41929_Stepper_Stop(MS41929_CHANNEL_CD, 1);
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                UART_SendByte_ISR(&huart1, ack_ok);
                 break;
 
             /* ==================== 七彩LED (0x09 ~ 0x0A) ==================== */
             case 0x09: // 七彩LED 开 (PB1 高电平 → 模块自动闪烁)
                 HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_SET);
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                UART_SendByte_ISR(&huart1, ack_ok);
                 break;
 
             case 0x0A: // 七彩LED 关 (PB1 低电平)
                 HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_RESET);
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                UART_SendByte_ISR(&huart1, ack_ok);
                 break;
 
             case 0x0B: // 蜂鸣器短鸣（主循环自动关断）
                 HAL_GPIO_WritePin(BUZZER_GPIO_Port, BUZZER_Pin, GPIO_PIN_SET);
                 buzzer_on = 1;
                 buzzer_on_time = HAL_GetTick();
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                UART_SendByte_ISR(&huart1, ack_ok);
                 break;
 
             case 0x0C: // 急停：AB + CD 同时刹车
@@ -348,12 +356,12 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
                 motor_cd_state = 0;
                 MS41929_Stepper_Stop(MS41929_CHANNEL_AB, 1);
                 MS41929_Stepper_Stop(MS41929_CHANNEL_CD, 1);
-                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                UART_SendByte_ISR(&huart1, ack_ok);
                 break;
 
             /* ==================== 无法识别的无效命令 ==================== */
             default:
-                HAL_UART_Transmit(&huart1, &ack_err, 1, 10); 
+                UART_SendByte_ISR(&huart1, ack_err); 
                 break;
         }
 
