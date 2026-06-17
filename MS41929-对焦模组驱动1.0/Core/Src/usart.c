@@ -15,7 +15,6 @@
 /* USER CODE END 0 */
 
 UART_HandleTypeDef huart1;
-UART_HandleTypeDef huart3;
 
 /* USART1 init function */
 void MX_USART1_UART_Init(void)
@@ -29,23 +28,6 @@ void MX_USART1_UART_Init(void)
   huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart1.Init.OverSampling = UART_OVERSAMPLING_16;
   if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-}
-
-/* USART3 init function (LD3320 语音模块) */
-void MX_USART3_UART_Init(void)
-{
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = 9600;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -68,21 +50,6 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
     HAL_NVIC_SetPriority(USART1_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(USART1_IRQn);
-  }
-  else if(uartHandle->Instance==USART3)
-  {
-    __HAL_RCC_USART3_CLK_ENABLE();
-    __HAL_RCC_GPIOB_CLK_ENABLE();
-    GPIO_InitStruct.Pin = GPIO_PIN_10;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-    GPIO_InitStruct.Pin = GPIO_PIN_11;
-    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-    HAL_NVIC_SetPriority(USART3_IRQn, 1, 0);
-    HAL_NVIC_EnableIRQ(USART3_IRQn);
   }
 }
 
@@ -107,22 +74,48 @@ volatile uint8_t uart_single_byte_rx = 0;
 uint8_t command_received = 0;
 CommandFrame_t current_command;
 
-/* ─── LD3320 语音模块 ─── */
-#define LD3320_FRAME_LEN  5
-#define LD3320_HDR1       0xAA
-#define LD3320_HDR2       0x55
-#define LD3320_TAIL1      0x55
-#define LD3320_TAIL2      0xAA
-
-volatile uint8_t ld3320_rx_byte = 0;
-uint8_t ld3320_frame_buf[LD3320_FRAME_LEN];
-uint8_t ld3320_frame_idx = 0;
-uint8_t ld3320_frame_ready = 0;
+/* ─── 扬声器变量 ─── */
+static volatile uint8_t  speaker_active = 0;
+static volatile uint16_t speaker_half_period = 0;   // 半周期(ms)
+static volatile uint32_t speaker_stop_tick = 0;
+static volatile uint32_t speaker_last_toggle = 0;
 
 /**
- * @brief  串口接收中断回调
- *   USART1: 单字节指令 (上位机)
- *   USART3: LD3320 帧 AA 55 [ID] 55 AA (语音模块)
+ * @brief  扬声器发声（非阻塞，主循环驱动）
+ * @param  freq_hz: 频率(Hz) 如 500=500Hz
+ * @param  duration_ms: 持续时长(ms)
+ */
+void Speaker_Beep(uint16_t freq_hz, uint16_t duration_ms)
+{
+    if (freq_hz == 0 || duration_ms == 0) return;
+    speaker_half_period = 500 / freq_hz;   // 半周期 ≈ (1000/freq)/2
+    if (speaker_half_period < 1) speaker_half_period = 1;
+    speaker_stop_tick = HAL_GetTick() + duration_ms;
+    speaker_last_toggle = HAL_GetTick();
+    speaker_active = 1;
+    HAL_GPIO_WritePin(SPEAKER_GPIO_Port, SPEAKER_Pin, GPIO_PIN_SET);
+}
+
+/**
+ * @brief  扬声器状态机（主循环每轮调用）
+ */
+void Speaker_Process(void)
+{
+    if (!speaker_active) return;
+    uint32_t now = HAL_GetTick();
+    if (now >= speaker_stop_tick) {
+        HAL_GPIO_WritePin(SPEAKER_GPIO_Port, SPEAKER_Pin, GPIO_PIN_RESET);
+        speaker_active = 0;
+        return;
+    }
+    if ((now - speaker_last_toggle) >= speaker_half_period) {
+        HAL_GPIO_TogglePin(SPEAKER_GPIO_Port, SPEAKER_Pin);
+        speaker_last_toggle = now;
+    }
+}
+
+/**
+ * @brief  串口接收中断回调 — 单字节协议
  */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
@@ -143,6 +136,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         if (cmd >= 0x10 && cmd <= 0x73)
         {
             default_speed = cmd - 0x0F;
+            Speaker_Beep(800, 50);   /* 速度设置 → 短促高音 */
             HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
             HAL_UART_Receive_IT(&huart1, (uint8_t *)&uart_single_byte_rx, 1);
             return;
@@ -153,86 +147,80 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
             case 0x00: /* 心跳 */
                 HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
                 break;
-            case 0x01: motor_ab_state = 1; HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); break;
-            case 0x02: motor_ab_state = 2; HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); break;
-            case 0x03: motor_ab_state = 0; MS41929_Stepper_Stop(MS41929_CHANNEL_AB, 0); HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); break;
-            case 0x04: motor_ab_state = 0; MS41929_Stepper_Stop(MS41929_CHANNEL_AB, 1); HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); break;
-            case 0x05: motor_cd_state = 1; HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); break;
-            case 0x06: motor_cd_state = 2; HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); break;
-            case 0x07: motor_cd_state = 0; MS41929_Stepper_Stop(MS41929_CHANNEL_CD, 0); HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); break;
-            case 0x08: motor_cd_state = 0; MS41929_Stepper_Stop(MS41929_CHANNEL_CD, 1); HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); break;
-            case 0x09: HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_SET);  HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); break;
-            case 0x0A: HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_RESET); HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); break;
-            case 0x0B: HAL_UART_Transmit(&huart1, &ack_err, 1, 10); break;
-            case 0x0C: motor_ab_state = 0; motor_cd_state = 0;
-                       MS41929_Stepper_Stop(MS41929_CHANNEL_AB, 1);
-                       MS41929_Stepper_Stop(MS41929_CHANNEL_CD, 1);
-                       HAL_UART_Transmit(&huart1, &ack_ok, 1, 10); break;
-            default:   HAL_UART_Transmit(&huart1, &ack_err, 1, 10); break;
+
+            case 0x01: /* AB 正转 */
+                motor_ab_state = 1;
+                Speaker_Beep(500, 150);
+                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                break;
+            case 0x02: /* AB 反转 */
+                motor_ab_state = 2;
+                Speaker_Beep(400, 150);
+                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                break;
+            case 0x03: /* AB 停止 */
+                motor_ab_state = 0;
+                MS41929_Stepper_Stop(MS41929_CHANNEL_AB, 0);
+                Speaker_Beep(300, 80);
+                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                break;
+            case 0x04: /* AB 刹车 */
+                motor_ab_state = 0;
+                MS41929_Stepper_Stop(MS41929_CHANNEL_AB, 1);
+                Speaker_Beep(200, 100);
+                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                break;
+
+            case 0x05: /* CD 正转 */
+                motor_cd_state = 1;
+                Speaker_Beep(600, 150);
+                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                break;
+            case 0x06: /* CD 反转 */
+                motor_cd_state = 2;
+                Speaker_Beep(550, 150);
+                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                break;
+            case 0x07: /* CD 停止 */
+                motor_cd_state = 0;
+                MS41929_Stepper_Stop(MS41929_CHANNEL_CD, 0);
+                Speaker_Beep(350, 80);
+                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                break;
+            case 0x08: /* CD 刹车 */
+                motor_cd_state = 0;
+                MS41929_Stepper_Stop(MS41929_CHANNEL_CD, 1);
+                Speaker_Beep(250, 100);
+                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                break;
+
+            case 0x09: /* 七彩LED 开 */
+                HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_SET);
+                Speaker_Beep(1000, 60);
+                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                break;
+            case 0x0A: /* 七彩LED 关 */
+                HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_RESET);
+                Speaker_Beep(900, 40);
+                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                break;
+            case 0x0B: /* 蜂鸣器(保留) */
+                HAL_UART_Transmit(&huart1, &ack_err, 1, 10);
+                break;
+            case 0x0C: /* AB+CD 急停 */
+                motor_ab_state = 0; motor_cd_state = 0;
+                MS41929_Stepper_Stop(MS41929_CHANNEL_AB, 1);
+                MS41929_Stepper_Stop(MS41929_CHANNEL_CD, 1);
+                Speaker_Beep(200, 300);
+                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                break;
+
+            default:
+                HAL_UART_Transmit(&huart1, &ack_err, 1, 10);
+                break;
         }
 
         HAL_UART_Receive_IT(&huart1, (uint8_t *)&uart_single_byte_rx, 1);
-    }
-    else if (huart->Instance == USART3)
-    {
-        uint8_t byte_in = ld3320_rx_byte;
-
-        /* 帧解析状态机: AA 55 [ID] 55 AA */
-        switch (ld3320_frame_idx)
-        {
-            case 0: if (byte_in == LD3320_HDR1) ld3320_frame_idx = 1; break;
-            case 1:
-                if (byte_in == LD3320_HDR2) ld3320_frame_idx = 2;
-                else ld3320_frame_idx = 0;
-                break;
-            case 2:
-                ld3320_frame_buf[2] = byte_in;
-                ld3320_frame_idx = 3;
-                break;
-            case 3:
-                if (byte_in == LD3320_TAIL1) ld3320_frame_idx = 4;
-                else ld3320_frame_idx = 0;
-                break;
-            case 4:
-                if (byte_in == LD3320_TAIL2) ld3320_frame_ready = 1;
-                ld3320_frame_idx = 0;
-                break;
-            default:
-                ld3320_frame_idx = 0;
-                break;
-        }
-
-        if (ld3320_frame_ready)
-        {
-            ld3320_frame_ready = 0;
-            uint8_t keyword_id = ld3320_frame_buf[2];
-
-            /* 喂狗 */
-            last_command_time = HAL_GetTick();
-            system_is_timeout = 0;
-
-            switch (keyword_id)
-            {
-                case VOICE_AB_FORWARD:  motor_ab_state = 1;  break;  /* 1:对焦正转 */
-                case VOICE_AB_REVERSE:  motor_ab_state = 2;  break;  /* 2:对焦反转 */
-                case VOICE_CD_FORWARD:  motor_cd_state = 1;  break;  /* 3:变焦正转 */
-                case VOICE_CD_REVERSE:  motor_cd_state = 2;  break;  /* 4:变焦反转 */
-                case VOICE_ALL_STOP:
-                    motor_ab_state = 0; motor_cd_state = 0;
-                    MS41929_Stepper_Stop(MS41929_CHANNEL_AB, 1);
-                    MS41929_Stepper_Stop(MS41929_CHANNEL_CD, 1);
-                    break;
-                case VOICE_LED_ON:                                    /* 6:开灯 */
-                    HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_SET);
-                    break;
-                case VOICE_LED_OFF:                                   /* 7:关灯 */
-                    HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_RESET);
-                    break;
-                default: break;
-            }
-        }
-
-        HAL_UART_Receive_IT(&huart3, (uint8_t *)&ld3320_rx_byte, 1);
     }
 }
 
@@ -252,11 +240,9 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     huart->RxState = HAL_UART_STATE_READY;
     if (huart->Instance == USART1)
         HAL_UART_Receive_IT(&huart1, (uint8_t *)&uart_single_byte_rx, 1);
-    else if (huart->Instance == USART3)
-        HAL_UART_Receive_IT(&huart3, (uint8_t *)&ld3320_rx_byte, 1);
 }
 
-/* ─── 以下为旧版帧协议兼容代码，保留但不使用 ─── */
+/* ─── 旧版帧协议兼容代码，保留但不使用 ─── */
 void SendAck(uint8_t status)
 {
     CommandFrame_t ack_frame;
@@ -309,10 +295,5 @@ void ProcessCommand(void)
 void UART_Receive_Init(void)
 {
     HAL_UART_Receive_IT(&huart1, (uint8_t *)&uart_single_byte_rx, 1);
-}
-
-void LD3320_Receive_Init(void)
-{
-    HAL_UART_Receive_IT(&huart3, (uint8_t *)&ld3320_rx_byte, 1);
 }
 /* USER CODE END 1 */

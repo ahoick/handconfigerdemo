@@ -76,6 +76,14 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
   HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_RESET);  // 默认灭
 
+  /*Configure GPIO pin : SPEAKER_Pin (PB0) — 扬声器 */
+  GPIO_InitStruct.Pin = SPEAKER_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(SPEAKER_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_WritePin(SPEAKER_GPIO_Port, SPEAKER_Pin, GPIO_PIN_RESET);
+
 }
 
 /* USER CODE BEGIN 2 */
