@@ -95,6 +95,8 @@ volatile uint8_t motor_cd_state = 0;
 
 /* 声明之前在中断里用的速度变量，并让它变成全局可用 */
 volatile uint8_t default_speed = 1;
+extern volatile uint8_t buzzer_on;
+extern volatile uint32_t buzzer_on_time;
 /* USER CODE END 0 */
 /* USER CODE END 0 */
 
@@ -172,6 +174,13 @@ HAL_Delay(10); // 给硬件一点稳定时间
               uint8_t timeout_ack = 0x99;
               HAL_UART_Transmit(&huart1, &timeout_ack, 1, 10);
           }
+      }
+
+      // ====== 1.5 蜂鸣器自动关断（80ms） ======
+      if (buzzer_on && (HAL_GetTick() - buzzer_on_time > 80))
+      {
+          HAL_GPIO_WritePin(BUZZER_GPIO_Port, BUZZER_Pin, GPIO_PIN_RESET);
+          buzzer_on = 0;
       }
 
       // ====== 2. 如果系统正常（未超时），根据状态持续驱动电机 ======

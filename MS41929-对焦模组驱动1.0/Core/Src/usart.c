@@ -175,6 +175,9 @@ uint8_t uart_rx_index = 0;
 uint8_t uart_single_byte_rx = 0;
 uint8_t command_received = 0;
 CommandFrame_t current_command;
+volatile uint8_t buzzer_on = 0;
+volatile uint32_t buzzer_on_time = 0;
+
 // LD3320 语音模块帧解析状态机
 // 帧格式: AA 55 [KEYWORD_ID] 55 AA
 #define LD3320_FRAME_LEN  5
@@ -332,6 +335,13 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
             case 0x0A: // 七彩LED 关 (PB1 低电平)
                 HAL_GPIO_WritePin(GPIOB, RGB_LED_Pin, GPIO_PIN_RESET);
+                HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
+                break;
+
+            case 0x0B: // 蜂鸣器短鸣（主循环自动关断）
+                HAL_GPIO_WritePin(BUZZER_GPIO_Port, BUZZER_Pin, GPIO_PIN_SET);
+                buzzer_on = 1;
+                buzzer_on_time = HAL_GetTick();
                 HAL_UART_Transmit(&huart1, &ack_ok, 1, 10);
                 break;
 

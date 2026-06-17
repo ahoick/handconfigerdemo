@@ -44,6 +44,7 @@ CMD_CD_BRAKE   = 0x08  # CD电机刹车抱死
 # 板载外设
 CMD_RGB_ON      = 0x09  # 七彩LED 开 (PB1)
 CMD_RGB_OFF     = 0x0A  # 七彩LED 关 (PB1)
+CMD_BUZZER      = 0x0B  # 蜂鸣器短鸣 (PB0)
 CMD_ALL_BRAKE   = 0x0C  # AB + CD 同时刹车
 
 # 速度设置范围 (上位机发送值)

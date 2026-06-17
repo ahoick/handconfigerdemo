@@ -601,7 +601,7 @@ class MainWindow(QMainWindow):
         self.gesture_legend = QLabel(
             '<span style="color:#8888aa;font-size:10px;">'
             '✋ <b>Gestures:</b> 1→AB▶ | 2→AB◀ | 3→CD▶ | 4→CD◀ | '
-            '5→彩灯开 | OK→彩灯关 | 👍→急停 | ✊→急停'
+            '5→彩灯+蜂鸣 | OK→彩灯关 | 👍→急停 | ✊→急停'
             '</span>'
         )
         self.gesture_legend.setVisible(False)
@@ -684,7 +684,7 @@ class MainWindow(QMainWindow):
                 self.gesture_status_lbl.setStyleSheet(f"color: {COLOR_SUCCESS}; background: transparent; font-size: 11px;")
                 self.gesture_legend.setVisible(True)
                 self._log("手势识别已启用 [打开摄像头 + 勾选手势识别]", "success")
-                self._log("手势映射: 1=AB正转 2=AB反转 3=CD正转 4=CD反转 5=彩灯开 OK=彩灯关 Good/Fist=急停", "info")
+                self._log("手势映射: 1=AB正转 2=AB反转 3=CD正转 4=CD反转 5=彩灯+蜂鸣 OK=彩灯关 Good/Fist=急停", "info")
             else:
                 self.gesture_status_lbl.setText("")
                 self.gesture_legend.setVisible(False)
@@ -741,7 +741,7 @@ class MainWindow(QMainWindow):
         from serial_communicator import (
             CMD_AB_FORWARD, CMD_AB_REVERSE, CMD_AB_STOP, CMD_AB_BRAKE,
             CMD_CD_FORWARD, CMD_CD_REVERSE, CMD_CD_STOP, CMD_CD_BRAKE,
-            CMD_RGB_ON, CMD_RGB_OFF, CMD_ALL_BRAKE,
+            CMD_RGB_ON, CMD_RGB_OFF, CMD_BUZZER, CMD_ALL_BRAKE,
         )
         cmd_map = {
             "CMD_AB_FORWARD": CMD_AB_FORWARD, "CMD_AB_REVERSE": CMD_AB_REVERSE,
@@ -749,12 +749,17 @@ class MainWindow(QMainWindow):
             "CMD_CD_FORWARD": CMD_CD_FORWARD, "CMD_CD_REVERSE": CMD_CD_REVERSE,
             "CMD_CD_STOP": CMD_CD_STOP, "CMD_CD_BRAKE": CMD_CD_BRAKE,
             "CMD_RGB_ON": CMD_RGB_ON, "CMD_RGB_OFF": CMD_RGB_OFF,
-            "CMD_ALL_BRAKE": CMD_ALL_BRAKE,
+            "CMD_BUZZER": CMD_BUZZER, "CMD_ALL_BRAKE": CMD_ALL_BRAKE,
         }
         cmd_byte = cmd_map.get(cmd_name)
         if cmd_byte is not None:
             self.serial.send_command(cmd_byte, f"手势: {gesture_name} → {desc}")
             self._log(f"  → {desc} 已发送", "success")
+
+            # 手势5: 同时触发蜂鸣器（开灯 + 蜂鸣）
+            if gesture_name == "5":
+                self.serial.send_command(CMD_BUZZER, "手势5: 蜂鸣器")
+                self._log(f"  → 蜂鸣器 已发送", "success")
 
     # ──────────────────────────────────────────────
     # 串口面板
